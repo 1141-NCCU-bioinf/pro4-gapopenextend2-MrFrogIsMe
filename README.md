@@ -1,13 +1,18 @@
 [![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-22041afd0340ce965d47ae6ef1cefeee28c7c493a6346c4f15d667ab976d596c.svg)](https://classroom.github.com/a/TP66JgUu)
 [![Open in Visual Studio Code](https://classroom.github.com/assets/open-in-vscode-2e0aaae1b6195c2367325f4f02e2d04e9abb55f0b24a779b69b11b9e10269abc.svg)](https://classroom.github.com/online_ide?assignment_repo_id=21772907&assignment_repo_type=AssignmentRepo)
+
 # pro4.GapOpenExtend
-<your name + student ID>
+
+ID: 112703043\
+Name: 彭啟則
+
 ## Description
 
 * Write a Python script to perform pairwise alignment with two-type gap penalties.
 * Creating your script, i.e. hw4.py.
 * In this program, the library Biostrings is only used to parse fasta files.
 * You should write a program with a function named alignment, ie.
+
 ```
 def alignment(input_path, score_path, output_path, aln, gap_open, gap_extend):
     .
@@ -15,6 +20,7 @@ def alignment(input_path, score_path, output_path, aln, gap_open, gap_extend):
     .
     .
 ```
+
 * If there is more than one local alignment with the same highest score, you should output one with the longest alignment length (i.e., the following command for local alignment).
 
 ## Files
@@ -55,8 +61,8 @@ Each testing data has a threshold score; output alignment score >= threshold get
 * High code similarity to others: YOUR SCORE = 0
 * the number of submission > 50: -5
 
-
 ## References
+
 Please provide the code along with its reference. For example, you can cite it as: ```# ChatGPT, respond to “your prompt,” on February 16, 2023```. Below is an example of a reference format summarizing the use of ChatGPT for R programming
 
 >You are the R Language expert.
