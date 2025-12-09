@@ -9,108 +9,156 @@ def load_fasta(file_path):
     labels, sequences = [], []
     with open(file_path, 'r') as f:
         for line in f:
-            # print('DEBUG: ', line.strip())
             if line.startswith('>'):
                 labels.append(line.strip())
                 sequences.append('')
             else:
                 sequences[-1] += line.strip()
-    # print('DEBUG: labels=', labels)
-    # print('DEBUG: sequences=', sequences)
     return labels, sequences
 
 def init_dp(seq1, seq2, aln, gap_open, gap_extend):
-    dp_scr = [[0 for _ in range(len(seq1) + 1)] for _ in range(len(seq2) + 1)]
-    dp_dir = [[['non'] for _ in range(len(seq1) + 1)] for _ in range(len(seq2) + 1)]
+    NEG_INF = float('-inf')
+    # 三個矩陣：M (match/mismatch), X (seq1 gap), Y (seq2 gap)
+    dp_M = [[NEG_INF for _ in range(len(seq1) + 1)] for _ in range(len(seq2) + 1)]
+    dp_X = [[NEG_INF for _ in range(len(seq1) + 1)] for _ in range(len(seq2) + 1)]
+    dp_Y = [[NEG_INF for _ in range(len(seq1) + 1)] for _ in range(len(seq2) + 1)]
+
+    # 三個方向矩陣
+    dir_M = [[None for _ in range(len(seq1) + 1)] for _ in range(len(seq2) + 1)]
+    dir_X = [[None for _ in range(len(seq1) + 1)] for _ in range(len(seq2) + 1)]
+    dir_Y = [[None for _ in range(len(seq1) + 1)] for _ in range(len(seq2) + 1)]
 
     if aln == 'local':
-        return dp_scr, dp_dir
+        for i in range(len(seq2) + 1):
+            dp_M[i][0] = dp_X[i][0] = dp_Y[i][0] = 0
+        for j in range(len(seq1) + 1):
+            dp_M[0][j] = dp_X[0][j] = dp_Y[0][j] = 0
+        return (dp_M, dp_X, dp_Y), (dir_M, dir_X, dir_Y)
 
     # Global alignment initialization
-    # X, Horizontal gap (insertion)
-    for i in range(1, len(dp_scr[0])):
-        dp_scr[0][i] = dp_scr[0][i-1] + (gap_extend if dp_dir[0][i-1] == ['ins'] else gap_open)
-        dp_dir[0][i] = ['ins']
-    # Y, Vertical gap (deletion)
-    for i in range(1, len(dp_scr)):
-        dp_scr[i][0] = dp_scr[i-1][0] + (gap_extend if dp_dir[i-1][0] == ['del'] else gap_open)
-        dp_dir[i][0] = ['del']
-    # print(*dp_scr, sep='\n')
-    # print(*dp_dir, sep='\n')
-    return dp_scr, dp_dir
+    dp_M[0][0] = 0
+    # X: Horizontal gap (seq1 的字元對到 seq2 的 gap)
+    for j in range(1, len(seq1) + 1):
+        dp_X[0][j] = gap_open + (j - 1) * gap_extend
+        dir_X[0][j] = ('X', 0, j - 1)
+    # Y: Vertical gap (seq2 的字元對到 seq1 的 gap)
+    for i in range(1, len(seq2) + 1):
+        dp_Y[i][0] = gap_open + (i - 1) * gap_extend
+        dir_Y[i][0] = ('Y', i - 1, 0)
+
+    return (dp_M, dp_X, dp_Y), (dir_M, dir_X, dir_Y)
 
 def alignment(input_path, score_path, output_path, aln, gap_open, gap_extend):
     (label1, label2), (seq1, seq2) = load_fasta(input_path)
     scores = load_pam_matrix(score_path)
-    dp_scr, dp_dir = init_dp(seq1, seq2, aln, gap_open, gap_extend)
+    (dp_M, dp_X, dp_Y), (dir_M, dir_X, dir_Y) = init_dp(seq1, seq2, aln, gap_open, gap_extend)
 
-    max_score = -float('inf')
+    NEG_INF = float('-inf')
+    max_score = NEG_INF
     max_poses = []
-    for i in range(1, len(dp_scr)):
-        for j in range(1, len(dp_scr[0])):
+
+    for i in range(1, len(seq2) + 1):
+        for j in range(1, len(seq1) + 1):
             c1 = seq1[j-1]
             c2 = seq2[i-1]
-            score_dict = {
-                'sub': dp_scr[i-1][j-1] + int(scores.loc[c2, c1]), 
-                'ins': dp_scr[i][j-1] + (gap_extend if 'ins' in dp_dir[i][j-1] else gap_open),
-                'del': dp_scr[i-1][j] + (gap_extend if 'del' in dp_dir[i-1][j] else gap_open),
-                'non': 0 if aln == 'local' else -float('inf')
+            match_score = int(scores.loc[c2, c1])
+
+            # M[i][j]: match/mismatch，從對角線來
+            m_candidates = {
+                ('M', i-1, j-1): dp_M[i-1][j-1] + match_score,
+                ('X', i-1, j-1): dp_X[i-1][j-1] + match_score,
+                ('Y', i-1, j-1): dp_Y[i-1][j-1] + match_score,
             }
-            score = max(score_dict.values())
-            dp_scr[i][j] = score
-            dp_dir[i][j] = [k for k, v in score_dict.items() if v == score]
-            if score > max_score:
-                max_score = score
-                max_poses = [(i, j)]
-            elif score == max_score:
-                max_poses.append((i, j))
-                
-            # print(dp_scr[i][j], score_dict)
-            # print([k for k, v in score_dict.items() if v == dp_scr[i][j]])
-    # print(*dp_scr, sep='\n')
-    # print(*dp_dir, sep='\n')
+            if aln == 'local':
+                m_candidates[(None, None, None)] = 0
+            dp_M[i][j] = max(m_candidates.values())
+            dir_M[i][j] = max(m_candidates, key=m_candidates.get)
+            if dir_M[i][j] == (None, None, None):
+                dir_M[i][j] = None
+
+            # X[i][j]: seq1 gap (水平移動，j-1 -> j)
+            x_candidates = {
+                ('M', i, j-1): dp_M[i][j-1] + gap_open,
+                ('X', i, j-1): dp_X[i][j-1] + gap_extend,
+                ('Y', i, j-1): dp_Y[i][j-1] + gap_open,
+            }
+            if aln == 'local':
+                x_candidates[(None, None, None)] = 0
+            dp_X[i][j] = max(x_candidates.values())
+            dir_X[i][j] = max(x_candidates, key=x_candidates.get)
+            if dir_X[i][j] == (None, None, None):
+                dir_X[i][j] = None
+
+            # Y[i][j]: seq2 gap (垂直移動，i-1 -> i)
+            y_candidates = {
+                ('M', i-1, j): dp_M[i-1][j] + gap_open,
+                ('X', i-1, j): dp_X[i-1][j] + gap_open,
+                ('Y', i-1, j): dp_Y[i-1][j] + gap_extend,
+            }
+            if aln == 'local':
+                y_candidates[(None, None, None)] = 0
+            dp_Y[i][j] = max(y_candidates.values())
+            dir_Y[i][j] = max(y_candidates, key=y_candidates.get)
+            if dir_Y[i][j] == (None, None, None):
+                dir_Y[i][j] = None
+
+            # Track max for local alignment
+            if aln == 'local':
+                cell_max = max(dp_M[i][j], dp_X[i][j], dp_Y[i][j])
+                if cell_max > max_score:
+                    max_score = cell_max
+                    max_poses = []
+                if cell_max == max_score and cell_max > 0:
+                    if dp_M[i][j] == cell_max:
+                        max_poses.append(('M', i, j))
+                    if dp_X[i][j] == cell_max:
+                        max_poses.append(('X', i, j))
+                    if dp_Y[i][j] == cell_max:
+                        max_poses.append(('Y', i, j))
 
     # Trace-back
-    def trace_back(aln1, aln2, i, j, res):
-        # print(i, j, ': ', seq1[j-1] if j > 0 else '', seq2[i-1] if i > 0 else '', dp_scr[i][j], dp_dir[i][j])
-        if i < 0 or j < 0:
-            print('Error in trace_back:', i, j)
-            exit(1)
+    def trace_back(aln1, aln2, matrix, i, j, res):
+        if matrix == 'M':
+            direction = dir_M[i][j]
+        elif matrix == 'X':
+            direction = dir_X[i][j]
+        else:
+            direction = dir_Y[i][j]
 
-        if aln == 'local' and ('non' in dp_dir[i][j] or dp_scr[i][j] == 0):
-            # aln1 = seq1[j-1] + aln1
-            # aln2 = seq2[i-1] + aln2
-            res.append((aln1, aln2))
-            return
-        elif i == 0 and j == 0:
-            res.append((aln1, aln2))
-            return
-        elif j <= 0:
-            trace_back('-' + aln1, seq2[i-1] + aln2, i-1, j, res)
-            return
-        elif i <= 0:
-            trace_back(seq1[j-1] + aln1, '-' + aln2, i, j-1, res)
+        if direction is None:
+            if i == 0 and j == 0:
+                res.append((aln1, aln2))
+            elif aln == 'local':
+                res.append((aln1, aln2))
             return
 
-        if 'sub' in dp_dir[i][j]:
-            trace_back(seq1[j-1] + aln1, seq2[i-1] + aln2, i-1, j-1, res)
-        if 'ins' in dp_dir[i][j]:
-            trace_back(seq1[j-1] + aln1, '-' + aln2, i, j-1, res)
-        if 'del' in dp_dir[i][j]:
-            trace_back('-' + aln1, seq2[i-1] + aln2, i-1, j, res)
+        prev_matrix, pi, pj = direction
+
+        if pi == i - 1 and pj == j - 1:
+            # Diagonal: match/mismatch
+            trace_back(seq1[j-1] + aln1, seq2[i-1] + aln2, prev_matrix, pi, pj, res)
+        elif pi == i and pj == j - 1:
+            # Horizontal: gap in seq2
+            trace_back(seq1[j-1] + aln1, '-' + aln2, prev_matrix, pi, pj, res)
+        elif pi == i - 1 and pj == j:
+            # Vertical: gap in seq1
+            trace_back('-' + aln1, seq2[i-1] + aln2, prev_matrix, pi, pj, res)
 
     res = []
     if aln == 'global':
-        i, j = len(dp_dir)-1, len(dp_dir[0])-1
-        trace_back('', '', i, j, res)
+        i, j = len(seq2), len(seq1)
+        # 從三個矩陣中選最佳的結尾
+        final_scores = [('M', dp_M[i][j]), ('X', dp_X[i][j]), ('Y', dp_Y[i][j])]
+        best_matrix = max(final_scores, key=lambda x: x[1])[0]
+        trace_back('', '', best_matrix, i, j, res)
     elif aln == 'local':
-        for i, j in max_poses:
-            trace_back('', '', i, j, res)
-        max_len = max(len(a[0]) for a in res)
-        res = [a for a in res if len(a[0]) == max_len]
+        for matrix, i, j in max_poses:
+            trace_back('', '', matrix, i, j, res)
+        if res:
+            max_len = max(len(a[0]) for a in res)
+            res = [a for a in res if len(a[0]) == max_len]
 
     res.sort(key=lambda x: (x[0], x[1]))
-    # print(*res, sep='\n')
     with open(output_path, 'w') as f:
         for aln1, aln2 in res:
             f.write(label1 + '\n')
@@ -121,9 +169,5 @@ def alignment(input_path, score_path, output_path, aln, gap_open, gap_extend):
                 break
 
 if __name__ == "__main__":
-    # alignment("examples/test.fasta", "examples/pam250.txt", "examples/my_result_global.fasta", "global", -10, -2)
-    # alignment("examples/test.fasta", "examples/pam250.txt", "examples/my_result_local.fasta", "local", -10, -2)
-    # alignment("examples/2.fasta", "examples/pam250.txt", "examples/2_result.fasta", "global", -10, -2)
-    alignment("examples/4.fasta", "examples/pam250.txt", "examples/4_result.fasta", "global", -10, -2)
-    # alignment("examples/test_ppt.fasta", "examples/pam250.txt", "examples/my_result_ppt.fasta", "global", -2, -2)
-    # alignment("examples/test_short.fasta", "examples/pam250.txt", "examples/my_result_short.fasta", "global", -10, -2)
+    alignment("examples/test.fasta", "examples/pam250.txt", "examples/my_result_global.fasta", "global", -10, -2)
+    alignment("examples/test.fasta", "examples/pam250.txt", "examples/my_result_local.fasta", "local", -10, -2)
